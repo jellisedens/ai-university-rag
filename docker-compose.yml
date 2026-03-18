@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: rag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_password
+      POSTGRES_DB: rag_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: rag-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rag_user:rag_password@db:5432/rag_db
+      DATABASE_URL_SYNC: postgresql://rag_user:rag_password@db:5432/rag_db
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app/backend
+      - upload_data:/app/uploads
+
+volumes:
+  pgdata:
+  upload_data:
