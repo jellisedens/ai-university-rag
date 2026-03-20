@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from backend.api.auth import router as auth_router
 from backend.database.session import engine
 
 app = FastAPI(
@@ -7,6 +8,9 @@ app = FastAPI(
     description="RAG-powered Q&A system for university documents",
     version="0.1.0",
 )
+
+# Register routers
+app.include_router(auth_router)
 
 
 @app.get("/health")
