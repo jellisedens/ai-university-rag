@@ -28,7 +28,7 @@ services:
       - db
     volumes:
       - ./backend:/app/backend
-       - ./alembic.ini:/app/alembic.ini
+      - ./alembic.ini:/app/alembic.ini
       - upload_data:/app/uploads
 
 volumes:

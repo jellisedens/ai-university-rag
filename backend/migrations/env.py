@@ -4,6 +4,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 from backend.database.session import Base
+import backend.models  # noqa: F401 - we need to import the models so Alembic can see them
 
 # this is the Alembic Config object
 config = context.config
