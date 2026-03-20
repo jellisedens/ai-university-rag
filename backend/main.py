@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from backend.api.auth import router as auth_router
+from backend.api.documents import router as documents_router
 from backend.database.session import engine
 
 app = FastAPI(
@@ -11,6 +12,7 @@ app = FastAPI(
 
 # Register routers
 app.include_router(auth_router)
+app.include_router(documents_router)
 
 
 @app.get("/health")
