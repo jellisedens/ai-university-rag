@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     # RAG settings
     chunk_size: int = 800
     chunk_overlap: int = 150
-    top_k_results: int = 5
+    top_k_results: int = 8
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

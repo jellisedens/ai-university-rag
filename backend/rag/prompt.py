@@ -1,11 +1,6 @@
 def build_rag_prompt(query: str, chunks: list[dict]) -> str:
     """
     Build a prompt that includes retrieved document context.
-    
-    The prompt instructs the LLM to:
-    - Only answer based on the provided context
-    - Cite specific documents and page numbers
-    - Admit when the context doesn't contain the answer
     """
     context_parts = []
     for i, chunk in enumerate(chunks, 1):
@@ -14,13 +9,20 @@ def build_rag_prompt(query: str, chunks: list[dict]) -> str:
 
     context = "\n\n---\n\n".join(context_parts)
 
-    prompt = f"""You are a helpful university knowledge assistant. Answer the user's question based ONLY on the provided document context below. 
+    # Build a list of all unique documents for summary-type questions
+    unique_docs = list({chunk['document_title'] for chunk in chunks})
+    doc_list = ", ".join(unique_docs)
+
+    prompt = f"""You are a helpful university knowledge assistant. Answer the user's question based ONLY on the provided document context below.
 
 Rules:
 - Only use information from the provided context to answer
 - Cite your sources by referencing the document title and page number
-- If the context does not contain enough information to answer the question, say so clearly
+- If the context does not contain enough information to fully answer the question, answer what you can and clearly state what information is missing
+- If the question has multiple parts, address each part separately
 - Be concise and direct in your answers
+
+Available documents in the system: {doc_list}
 
 DOCUMENT CONTEXT:
 {context}

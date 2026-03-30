@@ -210,11 +210,17 @@ export default function DashboardPage() {
                     {msg.sources && msg.sources.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-gray-100">
                         <p className="text-xs font-medium text-gray-500 mb-1">Sources:</p>
-                        {msg.sources.map((source, j) => (
-                          <p key={j} className="text-xs text-gray-400">
-                            {source.document_title} — Page {source.page_number}
-                          </p>
-                        ))}
+                        {msg.sources
+                          .filter((source, j, arr) =>
+                            arr.findIndex(
+                              (s) => s.document_title === source.document_title && s.page_number === source.page_number
+                            ) === j
+                          )
+                          .map((source, j) => (
+                            <p key={j} className="text-xs text-gray-400">
+                              {source.document_title} — Page {source.page_number}
+                            </p>
+                          ))}
                       </div>
                     )}
                   </div>

@@ -55,36 +55,50 @@ async def ask_question(
 ) -> dict:
     """
     Full RAG pipeline for answering a question.
-
-    1. Retrieve relevant chunks
-    2. Build prompt with context
-    3. Call LLM
-    4. Save messages
-    5. Return answer with sources
     """
-    # Step 1: Retrieve relevant chunks
+    from sqlalchemy import select
+
+    # Step 1: Get recent conversation history
+    result = await db.execute(
+        select(Message)
+        .where(Message.session_id == session_id)
+        .order_by(Message.created_at.desc())
+        .limit(10)
+    )
+    recent_messages = list(reversed(result.scalars().all()))
+
+    # Step 2: Retrieve relevant chunks
     chunks = await retrieve_relevant_chunks(db, user_id, question)
 
-    # Step 2: Build the prompt
+    # Step 3: Build the prompt
     prompt = build_rag_prompt(question, chunks)
 
-    # Step 3: Call the LLM
+    # Step 4: Build message history for the LLM
+    llm_messages = [
+        {"role": "system", "content": "You are a helpful university knowledge assistant."},
+    ]
+
+    # Add recent conversation history so the LLM has context
+    for msg in recent_messages:
+        llm_messages.append({"role": msg.role, "content": msg.content})
+
+    # Add the current question with RAG context
+    llm_messages.append({"role": "user", "content": prompt})
+
+    # Step 5: Call the LLM
     response = await client.chat.completions.create(
         model=settings.chat_model,
-        messages=[
-            {"role": "system", "content": "You are a helpful university knowledge assistant."},
-            {"role": "user", "content": prompt},
-        ],
+        messages=llm_messages,
         temperature=0.3,
     )
 
     answer = response.choices[0].message.content
 
-    # Step 4: Save the conversation
+    # Step 6: Save the conversation
     await save_message(db, session_id, "user", question)
     await save_message(db, session_id, "assistant", answer)
 
-    # Step 5: Return answer with sources
+    # Step 7: Return answer with sources
     sources = [
         {
             "document_title": chunk["document_title"],
