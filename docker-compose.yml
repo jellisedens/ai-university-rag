@@ -24,6 +24,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://rag_user:rag_password@db:5432/rag_db
       DATABASE_URL_SYNC: postgresql://rag_user:rag_password@db:5432/rag_db
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     depends_on:
       - db
     volumes:

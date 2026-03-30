@@ -13,6 +13,7 @@ from backend.services.document import (
     get_user_documents,
     save_upload,
 )
+from backend.rag.pipeline import process_document
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -50,6 +51,37 @@ async def upload_document(
 
     title = file.filename.rsplit(".", 1)[0]
     document = await create_document(db, user.id, title, file.filename, file_path)
+
+    return DocumentResponse(
+        id=document.id,
+        title=document.title,
+        file_name=document.file_name,
+        status=document.status,
+        uploaded_at=document.uploaded_at.isoformat(),
+    )
+
+
+@router.post("/{document_id}/process", response_model=DocumentResponse)
+async def process_uploaded_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Process an uploaded document through the ingestion pipeline."""
+    document = await get_document_by_id(db, document_id, user.id)
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    if document.status != "uploaded":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Document cannot be processed (current status: {document.status})",
+        )
+
+    await process_document(db, document)
 
     return DocumentResponse(
         id=document.id,
