@@ -50,7 +50,6 @@ async def get_user_documents(
     """Get all documents belonging to a user."""
     result = await db.execute(
         select(Document)
-        .where(Document.user_id == user_id)
         .order_by(Document.uploaded_at.desc())
     )
     return list(result.scalars().all())
@@ -67,3 +66,17 @@ async def get_document_by_id(
         )
     )
     return result.scalar_one_or_none()
+
+async def delete_document(
+    db: AsyncSession, document_id: uuid.UUID, user_id: uuid.UUID
+) -> bool:
+    """Delete a document and all its chunks. Returns True if deleted."""
+    result = await db.execute(
+        select(Document).where(Document.id == document_id)
+    )
+    document = result.scalar_one_or_none()
+    if not document:
+        return False
+    await db.delete(document)
+    await db.flush()
+    return True

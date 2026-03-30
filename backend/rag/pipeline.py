@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.document import Document, DocumentChunk
-from backend.rag.text_extraction import extract_text_from_pdf
+from backend.rag.text_extraction import extract_text
 from backend.rag.chunking import chunk_text
 from backend.rag.embeddings import generate_embeddings
 
@@ -26,7 +26,7 @@ async def process_document(db: AsyncSession, document: Document) -> None:
         await db.flush()
 
         # Step 2: Extract text
-        pages = extract_text_from_pdf(document.file_path)
+        pages = extract_text(document.file_path)
         if not pages:
             document.status = "failed"
             await db.flush()

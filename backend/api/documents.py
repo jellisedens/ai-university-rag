@@ -9,6 +9,7 @@ from backend.models.user import User
 from backend.services.auth import get_current_user
 from backend.services.document import (
     create_document,
+    delete_document,
     get_document_by_id,
     get_user_documents,
     save_upload,
@@ -39,11 +40,18 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Upload a PDF document."""
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
+    """Upload a document for processing."""
+    allowed_extensions = {".pdf", ".txt", ".md", ".docx", ".doc", ".xlsx", ".xls", ".csv"}
+    if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF files are accepted",
+            detail="No file provided",
+        )
+    ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type. Accepted: {', '.join(sorted(allowed_extensions))}",
         )
 
     content = await file.read()
@@ -97,7 +105,7 @@ async def list_documents(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """List all documents for the current user."""
+    """List all documents in the system."""
     documents = await get_user_documents(db, user.id)
     return [
         DocumentResponse(
@@ -132,3 +140,17 @@ async def get_document(
         status=document.status,
         uploaded_at=document.uploaded_at.isoformat(),
     )
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Delete a document and all its chunks."""
+    deleted = await delete_document(db, document_id, user.id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
