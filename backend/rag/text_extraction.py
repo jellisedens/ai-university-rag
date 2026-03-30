@@ -70,10 +70,11 @@ def extract_text_from_excel(file_path: str) -> list[dict]:
         prefix = f"Sheet: {sheet_name}\n" if sheet_name else ""
         header_line = " | ".join(headers)
 
-        # Summary chunk: first 3 columns of every row for a compact overview
+        # Summary chunks: first 3 columns of every row, split into groups of 50
         max_summary_cols = min(3, len(headers))
         summary_header = " | ".join(headers[:max_summary_cols])
-        summary_lines = [f"Total rows: {len(data_rows)}", f"Columns: {header_line}", f"", f"All records ({summary_header}):"]
+        
+        all_record_lines = []
         for row in data_rows:
             parts = []
             for idx in range(max_summary_cols):
@@ -82,10 +83,24 @@ def extract_text_from_excel(file_path: str) -> list[dict]:
                     if val:
                         parts.append(val)
             if parts:
-                summary_lines.append(" | ".join(parts))
+                all_record_lines.append(" | ".join(parts))
 
-        summary_text = f"{prefix}" + "\n".join(summary_lines)
-        result.append({"page_number": 1, "text": summary_text})
+        records_per_summary = 50
+        for i in range(0, len(all_record_lines), records_per_summary):
+            batch = all_record_lines[i:i + records_per_summary]
+            part_num = (i // records_per_summary) + 1
+            total_parts = (len(all_record_lines) + records_per_summary - 1) // records_per_summary
+            
+            summary_lines = [
+                f"Total records in this sheet: {len(data_rows)}",
+                f"Columns: {header_line}",
+                f"",
+                f"Records list (part {part_num} of {total_parts}, showing {i+1}-{i+len(batch)} of {len(all_record_lines)}):",
+            ]
+            summary_lines.extend(batch)
+            summary_text = f"{prefix}" + "\n".join(summary_lines)
+            result.append({"page_number": 1, "text": summary_text})
+
 
         # Detail chunks: 5 rows each with all columns
         rows_per_chunk = 5

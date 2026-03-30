@@ -90,6 +90,7 @@ async def ask_question(
         model=settings.chat_model,
         messages=llm_messages,
         temperature=0.3,
+        max_tokens=4096,
     )
 
     answer = response.choices[0].message.content
