@@ -70,32 +70,31 @@ def extract_text_from_excel(file_path: str) -> list[dict]:
         prefix = f"Sheet: {sheet_name}\n" if sheet_name else ""
         header_line = " | ".join(headers)
 
-        # Summary chunks: first 3 columns of every row, split into groups of 50
-        max_summary_cols = min(3, len(headers))
-        summary_header = " | ".join(headers[:max_summary_cols])
-        
-        all_record_lines = []
+         # Summary chunks: include all short-value columns for each row
+        # Skip only columns with long text (descriptions, HTML blobs)
+        summary_records = []
         for row in data_rows:
             parts = []
-            for idx in range(max_summary_cols):
-                if idx < len(row):
-                    val = clean_text(row[idx])
-                    if val:
-                        parts.append(val)
+            for idx, cell in enumerate(row):
+                if idx < len(headers):
+                    cleaned = clean_text(cell)
+                    if cleaned and len(cleaned) < 150:
+                        parts.append(f"{headers[idx]}: {cleaned}")
             if parts:
-                all_record_lines.append(" | ".join(parts))
+                summary_records.append(" | ".join(parts))
 
-        records_per_summary = 50
-        for i in range(0, len(all_record_lines), records_per_summary):
-            batch = all_record_lines[i:i + records_per_summary]
+        records_per_summary = 30
+        for i in range(0, len(summary_records), records_per_summary):
+            batch = summary_records[i:i + records_per_summary]
             part_num = (i // records_per_summary) + 1
-            total_parts = (len(all_record_lines) + records_per_summary - 1) // records_per_summary
-            
+            total_parts = (len(summary_records) + records_per_summary - 1) // records_per_summary
+
             summary_lines = [
                 f"Total records in this sheet: {len(data_rows)}",
-                f"Columns: {header_line}",
+                f"All columns: {header_line}",
                 f"",
-                f"Records list (part {part_num} of {total_parts}, showing {i+1}-{i+len(batch)} of {len(all_record_lines)}):",
+                f"Records (part {part_num} of {total_parts}, rows {i+1}-{i+len(batch)} of {len(summary_records)}):",
+                f"",
             ]
             summary_lines.extend(batch)
             summary_text = f"{prefix}" + "\n".join(summary_lines)

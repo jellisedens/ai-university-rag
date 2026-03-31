@@ -60,55 +60,50 @@ async def retrieve_relevant_chunks(
         for row in rows
     ]
 
-    # If the top result is from a spreadsheet-style document,
-    # also fetch other chunks from the same document to get complete data
     if chunks:
         top_doc_id = chunks[0]["document_id"]
-        found_doc_ids = {c["document_id"] for c in chunks}
 
-        # Count how many chunks we got from the top document
-        top_doc_chunks = [c for c in chunks if c["document_id"] == top_doc_id]
+        # Fetch summary chunks from the top document
+        extra_sql = text("""
+            SELECT
+                dc.content,
+                dc.page_number,
+                dc.chunk_index,
+                d.title AS document_title,
+                d.file_name,
+                d.id AS document_id,
+                dc.embedding <=> :embedding AS distance
+            FROM document_chunks dc
+            JOIN documents d ON dc.document_id = d.id
+            WHERE d.id = CAST(:doc_id AS UUID)
+                AND dc.embedding IS NOT NULL
+                AND dc.content LIKE :prefix
+            ORDER BY dc.chunk_index
+        """)
 
-        # If we only got some chunks from the top document, fetch the rest
-        if len(top_doc_chunks) < 5:
-            extra_sql = text("""
-                SELECT
-                    dc.content,
-                    dc.page_number,
-                    dc.chunk_index,
-                    d.title AS document_title,
-                    d.file_name,
-                    d.id AS document_id,
-                    dc.embedding <=> :embedding AS distance
-                FROM document_chunks dc
-                JOIN documents d ON dc.document_id = d.id
-                WHERE d.id = :doc_id
-                    AND dc.embedding IS NOT NULL
-                ORDER BY dc.chunk_index
-            """)
+        extra_result = await db.execute(
+            extra_sql,
+            {
+                "embedding": str(query_embedding),
+                "doc_id": top_doc_id,
+                "prefix": "Total records%",
+            },
+        )
 
-            extra_result = await db.execute(
-                extra_sql,
-                {
-                    "embedding": str(query_embedding),
-                    "doc_id": top_doc_id,
-                },
-            )
+        extra_rows = extra_result.fetchall()
+        existing_indices = {(c["document_id"], c["chunk_index"]) for c in chunks}
 
-            extra_rows = extra_result.fetchall()
-            existing_indices = {(c["document_id"], c["chunk_index"]) for c in chunks}
-
-            for row in extra_rows:
-                key = (str(row.document_id), row.chunk_index)
-                if key not in existing_indices:
-                    chunks.append({
-                        "content": row.content,
-                        "page_number": row.page_number,
-                        "chunk_index": row.chunk_index,
-                        "document_title": row.document_title,
-                        "file_name": row.file_name,
-                        "document_id": str(row.document_id),
-                        "distance": float(row.distance),
-                    })
+        for row in extra_rows:
+            key = (str(row.document_id), row.chunk_index)
+            if key not in existing_indices:
+                chunks.append({
+                    "content": row.content,
+                    "page_number": row.page_number,
+                    "chunk_index": row.chunk_index,
+                    "document_title": row.document_title,
+                    "file_name": row.file_name,
+                    "document_id": str(row.document_id),
+                    "distance": float(row.distance),
+                })
 
     return chunks
