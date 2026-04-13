@@ -153,7 +153,14 @@ async def ask_question(
 
     # Step 4: Build message history for the LLM
     llm_messages = [
-        {"role": "system", "content": "You are a helpful university knowledge assistant."},
+        {"role": "system", "content": (
+            "You are a helpful university knowledge assistant. "
+            "ABSOLUTE RULE: You may ONLY include dollar amounts that appear VERBATIM in the provided documents. "
+            "Report fees exactly as stated: if a fee is 'per semester', say 'per semester'. If it is 'per credit hour', say 'per credit hour'. If it is 'one-time', say 'one-time'. "
+            "NEVER multiply a per-period fee by a number of periods to create a total. "
+            "NEVER calculate, estimate, or invent any dollar amount that is not written word-for-word in the source data. "
+            "If you cannot quote the exact source text containing a dollar amount, do not include that amount in your response."
+        )},
     ]
     for msg in recent_messages:
         llm_messages.append({"role": msg.role, "content": msg.content})
@@ -188,7 +195,6 @@ async def ask_question(
         "sources": sources,
     }
 
-    # Include structured data if the AI-assisted route produced it
     if structured_data:
         result["structured_data"] = structured_data
 

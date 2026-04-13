@@ -426,21 +426,35 @@ async def hybrid_retrieval(db, user_id, query, filters, retrieve_fn, top_k):
 
     if program:
         query_embedding = await generate_single_embedding(query)
-        targeted_sql = text("""
+
+        # Split program into individual terms so "ABSN nursing" matches
+        # chunks containing both words in any order
+        program_words = [w.strip().lower() for w in program.split() if len(w.strip()) > 1]
+
+        program_conditions = []
+        program_params = {
+            "embedding": str(query_embedding),
+            "top_k": top_k,
+        }
+        for i, word in enumerate(program_words):
+            program_conditions.append(f"LOWER(dc.content) LIKE :pw{i}")
+            program_params[f"pw{i}"] = f"%{word}%"
+
+        program_where = " AND ".join(program_conditions) if program_conditions else "TRUE"
+
+        targeted_sql = text(f"""
             SELECT dc.content, dc.page_number, dc.chunk_index,
                    d.title AS document_title, d.file_name, d.id AS document_id,
                    dc.embedding <=> :embedding AS distance
             FROM document_chunks dc JOIN documents d ON dc.document_id = d.id
             WHERE d.status = 'completed' AND dc.embedding IS NOT NULL
-                AND LOWER(dc.content) LIKE :program
+                AND {program_where}
                 AND (LOWER(dc.content) LIKE '%tuition%' OR LOWER(dc.content) LIKE '%cost%'
                      OR LOWER(dc.content) LIKE '%fee%' OR LOWER(dc.content) LIKE '%per credit%'
                      OR LOWER(dc.content) LIKE '%per semester%' OR LOWER(dc.content) LIKE '%rate%')
             ORDER BY dc.embedding <=> :embedding LIMIT :top_k
         """)
-        result = await db.execute(targeted_sql, {
-            "embedding": str(query_embedding), "program": f"%{program.lower()}%", "top_k": top_k,
-        })
+        result = await db.execute(targeted_sql, program_params)
         for row in result.fetchall():
             key = (str(row.document_id), row.chunk_index)
             if key not in seen_indices:
