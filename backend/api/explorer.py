@@ -2,10 +2,7 @@
 Data Explorer API — Expand endpoint
 
 Fetches full details for a list of program titles.
-Simple approach: fetch the raw chunk content for matching titles,
-then parse the pipe-separated fields in Python.
-
-No regex extraction in SQL, no column discovery, no alias sanitization.
+Fetches raw chunk content, parses pipe-separated fields in Python.
 
 File location: backend/api/explorer.py
 """
@@ -22,7 +19,7 @@ from backend.services.auth import get_current_user
 
 router = APIRouter(prefix="/explorer", tags=["Data Explorer"])
 
-# Fields to exclude from display (WordPress/CMS junk)
+# Fields to exclude from display
 EXCLUDED_FIELDS = {
     "ID", "Post Type", "Permalink", "Image URL", "Image Title",
     "Image Caption", "Image Description", "Image Alt Text",
@@ -31,15 +28,14 @@ EXCLUDED_FIELDS = {
     "Comment Status", "Ping Status", "Post Modified Date",
     "Author ID", "Author Username", "Author Email",
     "Author First Name", "Author Last Name", "Status",
+    "Sheet", "Columns", "Records",
 }
 
-# Fields to show first (in this order)
+# Fields to show first
 PRIORITY_FIELDS = [
     "Title", "Colleges", "Departments", "Program Levels",
     "Areas of Study", "Locations", "credit-hours", "degree-duration",
     "program-director", "class-location-format",
-    "tuition-hr", "total-tuition-cost", "total-tuition-cost-per-semester",
-    "total-tuition-cost-per-year", "fee-breakdown",
 ]
 
 
@@ -57,50 +53,84 @@ class ExpandResponse(BaseModel):
     total: int
 
 
-def _parse_chunk_fields(content: str) -> dict[str, str]:
+def _extract_field(content: str, field_name: str) -> str:
     """
-    Parse pipe-separated fields from a chunk's content.
+    Extract a specific field value from chunk content using regex.
+    Handles the case where fields are pipe-separated:
+      field_name: value | next_field: ...
+    OR where the field is followed by a space and another field name with colon.
+    """
+    # Pattern: field_name: (everything up to the next pipe or end of string)
+    pattern = re.escape(field_name) + r':\s*([^|]+)'
+    match = re.search(pattern, content)
+    if match:
+        return match.group(1).strip()
+    return ""
 
-    Content format: "field1: value1 | field2: value2 | field3: value3"
 
-    Returns a dict of {field_name: value}, excluding junk fields.
+def _parse_all_fields(content: str) -> dict[str, str]:
+    """
+    Parse ALL pipe-separated fields from chunk content.
+    
+    The content may contain fields in any order, and Title may not be
+    at the start. We find all patterns of 'FieldName: value' separated
+    by pipes.
     """
     fields = {}
-
-    # Split on pipe separator
+    
+    # Split on pipe
     parts = content.split("|")
-
+    
     for part in parts:
         part = part.strip()
         if not part:
             continue
-
-        # Split on first colon to get field name and value
+        
+        # Find the LAST colon that's preceded by what looks like a field name
+        # Some values contain colons (e.g., "start-dates: Fall: August")
+        # Strategy: find first colon, check if left side is a reasonable field name
         colon_idx = part.find(":")
         if colon_idx == -1:
             continue
-
+        
         field_name = part[:colon_idx].strip()
         value = part[colon_idx + 1:].strip()
-
+        
+        # Skip if field name is too long (likely not a real field name)
+        if len(field_name) > 60:
+            continue
+        
+        # Skip if field name contains digits only (like "17 Title")
+        # This happens when two fields get concatenated without a pipe
+        # Try to recover: look for a known field name pattern
+        if " " in field_name and any(c.isdigit() for c in field_name.split()[0]):
+            # Try to find the actual field name after the number
+            # e.g., "17 Title" -> skip the "17" part
+            words = field_name.split()
+            for i, word in enumerate(words):
+                if not any(c.isdigit() for c in word) and len(word) > 1:
+                    # Found a non-numeric word — this might be the real field name
+                    potential_field = " ".join(words[i:])
+                    if potential_field:
+                        field_name = potential_field
+                        break
+        
         # Skip excluded fields
         if field_name in EXCLUDED_FIELDS:
             continue
-
-        # Skip fields that start with underscore (internal WordPress meta)
         if field_name.startswith("_"):
             continue
-
-        # Skip empty values
+        
+        # Skip empty/default values
         if not value or value in ("0", "FALSE", "default"):
             continue
-
-        # Skip very long values (likely HTML or serialized data)
+        
+        # Skip very long values (HTML, serialized data)
         if len(value) > 500:
             continue
-
+        
         fields[field_name] = value
-
+    
     return fields
 
 
@@ -112,30 +142,27 @@ async def expand_dataset(
 ):
     """
     Fetch full details for a list of program titles.
-
-    Simple approach:
-    1. Query document_chunks WHERE the extracted Title matches any of the given titles
-    2. Parse the pipe-separated fields from each chunk's raw content in Python
-    3. Deduplicate by title and return all useful fields
     """
+    print(f"[EXPLORER] Received {len(body.titles)} titles")
+    if body.titles:
+        print(f"[EXPLORER] First 3: {body.titles[:3]}")
+
     if not body.titles:
         raise HTTPException(status_code=400, detail="No titles provided")
 
     titles = body.titles[:200]
 
-    # Build parameterized query to match titles
+    # Fetch ALL chunks that contain any of the title strings
+    # Use simple LIKE matching on raw content
     title_conditions = []
     params = {}
     for i, title in enumerate(titles):
         param_name = f"t{i}"
-        title_conditions.append(
-            f"TRIM(substring(dc.content from 'Title: ([^|]+)')) = :{param_name}"
-        )
-        params[param_name] = title
+        title_conditions.append(f"LOWER(dc.content) LIKE :{param_name}")
+        params[param_name] = f"%{title.strip().lower()}%"
 
     title_where = " OR ".join(title_conditions)
 
-    # Fetch the raw content for matching chunks
     sql = text(f"""
         SELECT dc.content
         FROM document_chunks dc
@@ -147,43 +174,68 @@ async def expand_dataset(
     """)
 
     try:
+        print(f"[EXPLORER] Executing query with {len(params)} params")
         result = await db.execute(sql, params)
         rows = result.fetchall()
+        print(f"[EXPLORER] Query returned {len(rows)} raw rows")
     except Exception as e:
         print(f"[EXPLORER] Expand query failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to expand dataset")
 
-    # Parse fields from each chunk
-    all_fields = set()
-    parsed_rows = []
-    seen_titles = set()
+    # Parse fields from each chunk, grouping by title
+    # A single program may span multiple chunks — merge their fields
+    programs: dict[str, dict[str, str]] = {}
+    titles_lower = {t.strip().lower() for t in titles}
 
     for row in rows:
-        fields = _parse_chunk_fields(row.content)
-
+        fields = _parse_all_fields(row.content)
+        
+        # Also try regex extraction for Title specifically
+        # since it might be concatenated with a previous field
         title = fields.get("Title", "")
-        if not title or title in seen_titles:
+        if not title:
+            title = _extract_field(row.content, "Title")
+            if title:
+                fields["Title"] = title
+        
+        if not title:
             continue
-        seen_titles.add(title)
+        
+        # Verify this title is one we asked for
+        title_lower = title.strip().lower()
+        if not any(t in title_lower or title_lower in t for t in titles_lower):
+            continue
+        
+        # Merge fields into existing program data (later chunks add fields)
+        if title not in programs:
+            programs[title] = {}
+        
+        for k, v in fields.items():
+            if k not in programs[title] or not programs[title][k]:
+                programs[title][k] = v
 
-        parsed_rows.append(fields)
-        all_fields.update(fields.keys())
+    print(f"[EXPLORER] Parsed {len(programs)} unique programs")
 
-    # Order columns: priority fields first, then the rest alphabetically
+    # Collect all field names across all programs
+    all_fields = set()
+    for prog_fields in programs.values():
+        all_fields.update(prog_fields.keys())
+
+    # Order columns: priority first, then rest alphabetically
     ordered_columns = []
-    remaining_fields = sorted(all_fields)
+    remaining = sorted(all_fields)
 
     for pref in PRIORITY_FIELDS:
-        if pref in remaining_fields:
+        if pref in remaining:
             ordered_columns.append(pref)
-            remaining_fields.remove(pref)
+            remaining.remove(pref)
 
-    ordered_columns.extend(remaining_fields)
+    ordered_columns.extend(remaining)
 
-    # Build response
+    # Build response rows
     data_rows = []
-    for fields in sorted(parsed_rows, key=lambda f: f.get("Title", "")):
-        data_rows.append(ExpandRow(values=fields))
+    for title in sorted(programs.keys()):
+        data_rows.append(ExpandRow(values=programs[title]))
 
     print(f"[EXPLORER] Expanded {len(data_rows)} programs with {len(ordered_columns)} columns")
 
